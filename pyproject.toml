@@ -1,26 +1,23 @@
 [project]
-name = "pyjaapp-backend"
+name = "careerkinetic-backend"
 version = "0.1.0"
-description = "Serverless FastAPI with DynamoDB, S3, Cognito"
+description = "FastAPI backend for CareerKinetic"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi",
-    "mangum",
-    "boto3",
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
     "uvicorn",
+    "gunicorn",
     "sqlalchemy>=2.0.48",
     "asyncpg>=0.31.0",
     "alembic>=1.18.4",
-    "passlib[bcrypt]>=1.7.4",
-    "bcrypt==4.0.1",
     "pyjwt>=2.12.1",
-    "google-auth>=2.49.1",
-    "requests>=2.33.0",
     "email-validator>=2.3.0",
+    "supabase>=2.0.0",
+    "pre-commit>=4.5.1",
 ]
 
 [project.optional-dependencies]

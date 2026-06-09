@@ -1,1 +1,1 @@
-Idea: to build backend for pyjaapp using fastapi on aws lambda
+Idea: to build backend for CareerKinetic using fastapi on aws lambda

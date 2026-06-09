@@ -1,59 +1,66 @@
-name: Deploy Serverless FastAPI
+name: Deploy to Cloud Run
 
 on:
   push:
     branches:
-      - dev       # Deploys to DEV
-      - main # Deploys to PROD
+      - dev   # Deploys to DEV
+      - main  # Deploys to PROD
+
+env:
+  GCP_REGION: asia-south1
+  APP_NAME: pyjaapp-backend
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build Lambda Package
-        run: |
-          chmod +x build.sh
-          ./build.sh
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Determine Environment (Workspace)
-        id: env-name
+      - name: Determine Environment
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "WORKSPACE=prod" >> $GITHUB_ENV
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
           else
-            echo "WORKSPACE=dev" >> $GITHUB_ENV
+            echo "ENVIRONMENT=dev" >> $GITHUB_ENV
           fi
 
-      - name: Terraform Init & Apply
-        working-directory: ./terraform
+      # Authenticate to GCP via Workload Identity Federation (no service account keys)
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Build and push Docker image to Artifact Registry
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and Push Docker Image
         run: |
-          terraform init
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.APP_NAME }}-repo/${{ env.APP_NAME }}:${{ github.sha }}"
+          docker build -t $IMAGE .
+          docker push $IMAGE
 
-          # Create workspace if it doesn't exist, otherwise select it
-          terraform workspace select $WORKSPACE || terraform workspace new $WORKSPACE
-
-          # Apply infrastructure specific to the workspace
-          terraform apply -auto-approve -var="app_name=pyjaapp-backend" -var="environment=$WORKSPACE" -var="supabase_db_url=${{ secrets.SUPABASE_DB_URL }}" -var="google_client_id=${{ secrets.GOOGLE_CLIENT_ID }}" -var="mail_username=${{ secrets.MAIL_USERNAME }}" -var="mail_password=${{ secrets.MAIL_PASSWORD }}"
+      # Deploy to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.APP_NAME }}-${{ env.ENVIRONMENT }} \
+            --image "${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.APP_NAME }}-repo/${{ env.APP_NAME }}:${{ github.sha }}" \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "ENV=${{ env.ENVIRONMENT }}" \
+            --set-env-vars "DATABASE_URL=${{ secrets.SUPABASE_DB_URL }}" \
+            --set-env-vars "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" \
+            --set-env-vars "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" \
+            --set-env-vars "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            --set-env-vars "SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET }}"

@@ -1,7 +1,12 @@
-variable "aws_region" {
-  description = "AWS region"
+variable "gcp_project_id" {
+  description = "GCP project ID"
   type        = string
-  default     = "us-east-1"
+}
+
+variable "gcp_region" {
+  description = "GCP region (targeting Asia for low latency)"
+  type        = string
+  default     = "asia-south1"
 }
 
 variable "app_name" {
@@ -15,25 +20,30 @@ variable "environment" {
 }
 
 variable "supabase_db_url" {
-  description = "The database URL from Supabase"
+  description = "Supabase PostgreSQL connection string"
   type        = string
   sensitive   = true
 }
 
-variable "google_client_id" {
-  description = "Google Auth Client ID"
+variable "supabase_url" {
+  description = "Supabase project URL (e.g., https://xxxx.supabase.co)"
+  type        = string
+}
+
+variable "supabase_anon_key" {
+  description = "Supabase public anonymous API key"
   type        = string
   sensitive   = true
 }
 
-variable "mail_username" {
-  description = "Mail Username (e.g. Gmail address)"
+variable "supabase_service_role_key" {
+  description = "Supabase private service role key"
   type        = string
   sensitive   = true
 }
 
-variable "mail_password" {
-  description = "Mail Password (e.g. Gmail App Password)"
+variable "supabase_jwt_secret" {
+  description = "Supabase JWT signing secret"
   type        = string
   sensitive   = true
 }

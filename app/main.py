@@ -1,39 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
 
-from app.core.database import Base, engine
 from app.routers import auth
 
-app = FastAPI(title="Pyjaapp Backend API")
+app = FastAPI(title="CareerKinetic Backend API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for development
+    allow_origins=["*"],  # TODO: restrict to your frontend domain in production
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, OPTIONS, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-
-@app.get("/api/dev/init-db", tags=["dev"])
-async def init_db():
-    """
-    Helper endpoint to safely create tables in Production
-    without crashing Lambdas on startup.
-    """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    return {"message": "Database tables created successfully!"}
-
 
 app.include_router(auth.router, prefix="/api/auth")
 
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "environment": "serverless"}
-
-
-# Mangum wrapper for AWS Lambda
-handler = Mangum(app)
+    return {"status": "ok"}
