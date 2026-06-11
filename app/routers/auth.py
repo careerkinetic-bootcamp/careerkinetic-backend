@@ -147,7 +147,11 @@ async def oauth_callback(
             if token_resp.status_code != 200:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Google token exchange failed: {token_resp.text}",
+                    detail=(
+                        f"Google token exchange failed: {token_resp.text}. "
+                        f"Sent Redirect URI: '{settings.google_redirect_uri}', "
+                        f"Sent Client ID: '{settings.google_client_id}'"
+                    ),
                 )
             tokens = token_resp.json()
             access_token = tokens.get("access_token")
@@ -184,7 +188,11 @@ async def oauth_callback(
             if token_resp.status_code != 200:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"GitHub token exchange failed: {token_resp.text}",
+                    detail=(
+                        f"GitHub token exchange failed: {token_resp.text}. "
+                        f"Sent Redirect URI: '{settings.github_redirect_uri}', "
+                        f"Sent Client ID: '{settings.github_client_id}'"
+                    ),
                 )
             tokens = token_resp.json()
             access_token = tokens.get("access_token")
