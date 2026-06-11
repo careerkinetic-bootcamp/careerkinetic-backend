@@ -1,0 +1,114 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'careerkinetic-backend/**'
+      - '.github/workflows/backend.yml'
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Determine environment variables based on the branch
+      - name: Set Environment Variables
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "ENV=prod" >> $GITHUB_ENV
+            echo "DB_URL=${{ secrets.PROD_DATABASE_URL }}" >> $GITHUB_ENV
+            echo "JWT_SEC=${{ secrets.PROD_JWT_SECRET }}" >> $GITHUB_ENV
+            echo "CORS_ORGS=[\"https://careerkinetic.com\"]" >> $GITHUB_ENV
+            echo "GOOGLE_ID=${{ secrets.PROD_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+            echo "GOOGLE_SEC=${{ secrets.PROD_GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+            echo "GOOGLE_URI=${{ secrets.PROD_GOOGLE_REDIRECT_URI }}" >> $GITHUB_ENV
+            echo "GITHUB_ID=${{ secrets.PROD_GITHUB_CLIENT_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_SEC=${{ secrets.PROD_GITHUB_CLIENT_SECRET }}" >> $GITHUB_ENV
+            echo "GITHUB_URI=${{ secrets.PROD_GITHUB_REDIRECT_URI }}" >> $GITHUB_ENV
+          else
+            echo "ENV=dev" >> $GITHUB_ENV
+            echo "DB_URL=${{ secrets.DEV_DATABASE_URL }}" >> $GITHUB_ENV
+            echo "JWT_SEC=${{ secrets.DEV_JWT_SECRET }}" >> $GITHUB_ENV
+            echo "CORS_ORGS=[\"https://dev.careerkinetic.com\"]" >> $GITHUB_ENV
+            echo "GOOGLE_ID=${{ secrets.DEV_GOOGLE_CLIENT_ID }}" >> $GITHUB_ENV
+            echo "GOOGLE_SEC=${{ secrets.DEV_GOOGLE_CLIENT_SECRET }}" >> $GITHUB_ENV
+            echo "GOOGLE_URI=${{ secrets.DEV_GOOGLE_REDIRECT_URI }}" >> $GITHUB_ENV
+            echo "GITHUB_ID=${{ secrets.DEV_GITHUB_CLIENT_ID }}" >> $GITHUB_ENV
+            echo "GITHUB_SEC=${{ secrets.DEV_GITHUB_CLIENT_SECRET }}" >> $GITHUB_ENV
+            echo "GITHUB_URI=${{ secrets.DEV_GITHUB_REDIRECT_URI }}" >> $GITHUB_ENV
+          fi
+
+      # Authenticate to GCP using Workload Identity Federation
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Setup Terraform
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Initialize Terraform with isolated state
+      - name: Terraform Init
+        run: |
+          cd careerkinetic-backend/terraform
+          terraform init -backend-config="prefix=state/backend/${{ env.ENV }}"
+
+      # Target-apply the Artifact Registry repository so it is created first
+      - name: Terraform Target Artifact Registry
+        run: |
+          cd careerkinetic-backend/terraform
+          terraform apply -target=google_artifact_registry_repository.app -auto-approve \
+            -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="environment=${{ env.ENV }}" \
+            -var="database_url=${{ env.DB_URL }}" \
+            -var="jwt_secret=${{ env.JWT_SEC }}" \
+            -var="google_client_id=${{ env.GOOGLE_ID }}" \
+            -var="google_client_secret=${{ env.GOOGLE_SEC }}" \
+            -var="google_redirect_uri=${{ env.GOOGLE_URI }}" \
+            -var="github_client_id=${{ env.GITHUB_ID }}" \
+            -var="github_client_secret=${{ env.GITHUB_SEC }}" \
+            -var="github_redirect_uri=${{ env.GITHUB_URI }}"
+
+      # Configure Docker Authentication for GCP Artifact Registry
+      - name: Authenticate Docker to GCP
+        run: |
+          gcloud auth configure-docker asia-south2-docker.pkg.dev --quiet
+
+      # Build and Push Docker image
+      - name: Docker Build and Push
+        run: |
+          IMAGE_TAG="asia-south2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/careerkinetic-repo/careerkinetic:latest"
+          docker build -t $IMAGE_TAG ./careerkinetic-backend
+          docker push $IMAGE_TAG
+
+      # Deploy Cloud Run by applying the full Terraform configuration
+      - name: Terraform Apply Cloud Run
+        run: |
+          cd careerkinetic-backend/terraform
+          terraform apply -auto-approve \
+            -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="environment=${{ env.ENV }}" \
+            -var="database_url=${{ env.DB_URL }}" \
+            -var="jwt_secret=${{ env.JWT_SEC }}" \
+            -var="cors_origins=${{ env.CORS_ORGS }}" \
+            -var="google_client_id=${{ env.GOOGLE_ID }}" \
+            -var="google_client_secret=${{ env.GOOGLE_SEC }}" \
+            -var="google_redirect_uri=${{ env.GOOGLE_URI }}" \
+            -var="github_client_id=${{ env.GITHUB_ID }}" \
+            -var="github_client_secret=${{ env.GITHUB_SEC }}" \
+            -var="github_redirect_uri=${{ env.GITHUB_URI }}"

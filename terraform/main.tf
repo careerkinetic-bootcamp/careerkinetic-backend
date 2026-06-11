@@ -7,8 +7,8 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "careerkinetic-terraform-state"
-    prefix = "state"
+    bucket = "careerkinetic-tf-state"
+    prefix = "state/backend"
   }
 }
 
@@ -27,6 +27,11 @@ resource "google_artifact_registry_repository" "app" {
   repository_id = "${var.app_name}-repo"
   format        = "DOCKER"
   description   = "Docker repository for ${var.app_name}"
+
+  # Prevent deletion conflict when applying dev and prod separately
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
 # --- Cloud Run Service ---
@@ -48,23 +53,39 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         name  = "DATABASE_URL"
-        value = var.supabase_db_url
+        value = var.database_url
       }
       env {
-        name  = "SUPABASE_URL"
-        value = var.supabase_url
+        name  = "JWT_SECRET"
+        value = var.jwt_secret
       }
       env {
-        name  = "SUPABASE_ANON_KEY"
-        value = var.supabase_anon_key
+        name  = "CORS_ORIGINS"
+        value = jsonencode(var.cors_origins)
       }
       env {
-        name  = "SUPABASE_SERVICE_ROLE_KEY"
-        value = var.supabase_service_role_key
+        name  = "GOOGLE_CLIENT_ID"
+        value = var.google_client_id
       }
       env {
-        name  = "SUPABASE_JWT_SECRET"
-        value = var.supabase_jwt_secret
+        name  = "GOOGLE_CLIENT_SECRET"
+        value = var.google_client_secret
+      }
+      env {
+        name  = "GOOGLE_REDIRECT_URI"
+        value = var.google_redirect_uri
+      }
+      env {
+        name  = "GITHUB_CLIENT_ID"
+        value = var.github_client_id
+      }
+      env {
+        name  = "GITHUB_CLIENT_SECRET"
+        value = var.github_client_secret
+      }
+      env {
+        name  = "GITHUB_REDIRECT_URI"
+        value = var.github_redirect_uri
       }
 
       resources {

@@ -1,17 +1,18 @@
 variable "gcp_project_id" {
-  description = "GCP project ID"
+  description = "GCP Project ID"
   type        = string
 }
 
 variable "gcp_region" {
   description = "GCP region (targeting Asia for low latency)"
   type        = string
-  default     = "asia-south1"
+  default     = "asia-south2"
 }
 
 variable "app_name" {
   description = "Name of the application"
   type        = string
+  default     = "careerkinetic"
 }
 
 variable "environment" {
@@ -19,31 +20,54 @@ variable "environment" {
   type        = string
 }
 
-variable "supabase_db_url" {
-  description = "Supabase PostgreSQL connection string"
+variable "database_url" {
+  description = "Connection string for the PostgreSQL database (logical database)"
   type        = string
   sensitive   = true
 }
 
-variable "supabase_url" {
-  description = "Supabase project URL (e.g., https://xxxx.supabase.co)"
-  type        = string
-}
-
-variable "supabase_anon_key" {
-  description = "Supabase public anonymous API key"
+variable "jwt_secret" {
+  description = "Secret key used to sign custom JWT tokens"
   type        = string
   sensitive   = true
 }
 
-variable "supabase_service_role_key" {
-  description = "Supabase private service role key"
+variable "cors_origins" {
+  description = "CORS allowed origins for the frontend"
+  type        = list(string)
+  default     = ["http://localhost:5173", "http://127.0.0.1:5173"]
+}
+
+# --- Google OAuth ---
+variable "google_client_id" {
+  description = "Google Client ID"
+  type        = string
+}
+
+variable "google_client_secret" {
+  description = "Google Client Secret"
   type        = string
   sensitive   = true
 }
 
-variable "supabase_jwt_secret" {
-  description = "Supabase JWT signing secret"
+variable "google_redirect_uri" {
+  description = "Google Redirect Callback URI"
+  type        = string
+}
+
+# --- GitHub OAuth ---
+variable "github_client_id" {
+  description = "GitHub Client ID"
+  type        = string
+}
+
+variable "github_client_secret" {
+  description = "GitHub Client Secret"
   type        = string
   sensitive   = true
+}
+
+variable "github_redirect_uri" {
+  description = "GitHub Redirect Callback URI"
+  type        = string
 }
