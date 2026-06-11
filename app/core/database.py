@@ -14,15 +14,6 @@ if db_url.startswith("postgres://"):
 elif db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# Supabase enforces SSL for its connection pooler
-if (
-    ("supabase.com" in db_url or "pooler.supabase" in db_url)
-    and "ssl=" not in db_url
-    and "sslmode=" not in db_url
-):
-    joiner = "&" if "?" in db_url else "?"
-    db_url += f"{joiner}ssl=require"
-
 
 engine = create_async_engine(
     db_url, echo=False, poolclass=NullPool, connect_args={"statement_cache_size": 0}
