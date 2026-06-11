@@ -76,6 +76,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Enable Required GCP APIs
+        run: |
+          gcloud services enable artifactregistry.googleapis.com run.googleapis.com --quiet
+
       # Setup Terraform
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
