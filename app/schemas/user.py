@@ -8,6 +8,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
     role: str
+    auth_provider: str
     profile_data: dict[str, Any] | None
 
     class Config:
