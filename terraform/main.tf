@@ -24,9 +24,9 @@ locals {
 # --- Artifact Registry (Docker images) ---
 resource "google_artifact_registry_repository" "app" {
   location      = var.gcp_region
-  repository_id = "${var.app_name}-repo"
+  repository_id = "${var.app_name}-${var.environment}-repo"
   format        = "DOCKER"
-  description   = "Docker repository for ${var.app_name}"
+  description   = "Docker repository for ${var.app_name} (${var.environment})"
 
   # Prevent deletion conflict when applying dev and prod separately
   lifecycle {
