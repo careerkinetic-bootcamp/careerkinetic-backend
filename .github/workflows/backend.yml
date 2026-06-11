@@ -6,7 +6,8 @@ on:
       - dev
       - main
     paths:
-      - 'careerkinetic-backend/**'
+      - 'app/**'
+      - 'terraform/**'
       - '.github/workflows/backend.yml'
 
 permissions:
@@ -82,13 +83,13 @@ jobs:
       # Initialize Terraform with isolated state
       - name: Terraform Init
         run: |
-          cd careerkinetic-backend/terraform
+          cd terraform
           terraform init -backend-config="prefix=state/backend/${{ env.ENV }}"
 
       # Target-apply the Artifact Registry repository so it is created first
       - name: Terraform Target Artifact Registry
         run: |
-          cd careerkinetic-backend/terraform
+          cd terraform
           terraform apply -target=google_artifact_registry_repository.app -auto-approve \
             -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="environment=${{ env.ENV }}" \
@@ -110,13 +111,13 @@ jobs:
       - name: Docker Build and Push
         run: |
           IMAGE_TAG="asia-south2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/careerkinetic-repo/careerkinetic:latest"
-          docker build -t $IMAGE_TAG ./careerkinetic-backend
+          docker build -t $IMAGE_TAG .
           docker push $IMAGE_TAG
 
       # Deploy Cloud Run by applying the full Terraform configuration
       - name: Terraform Apply Cloud Run
         run: |
-          cd careerkinetic-backend/terraform
+          cd terraform
           terraform apply -auto-approve \
             -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="environment=${{ env.ENV }}" \
