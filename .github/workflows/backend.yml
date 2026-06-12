@@ -41,7 +41,9 @@ jobs:
           DEV_GITHUB_ID: ${{ secrets.DEV_GITHUB_CLIENT_ID }}
           DEV_GITHUB_SEC: ${{ secrets.DEV_GITHUB_CLIENT_SECRET }}
           DEV_GITHUB_URI: ${{ secrets.DEV_GITHUB_REDIRECT_URI }}
+          CLOUD_SQL: ${{ secrets.CLOUD_SQL_INSTANCE }}
         run: |
+          echo "CLOUD_SQL_INSTANCE=$CLOUD_SQL" >> $GITHUB_ENV
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "ENV=prod" >> $GITHUB_ENV
             echo "DB_URL=$PROD_DB_URL" >> $GITHUB_ENV
@@ -100,7 +102,8 @@ jobs:
             -var="google_redirect_uri=$GOOGLE_URI" \
             -var="github_client_id=$GITHUB_ID" \
             -var="github_client_secret=$GITHUB_SEC" \
-            -var="github_redirect_uri=$GITHUB_URI"
+            -var="github_redirect_uri=$GITHUB_URI" \
+            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE"
 
       # Configure Docker Authentication for GCP Artifact Registry
       - name: Authenticate Docker to GCP
@@ -128,5 +131,6 @@ jobs:
             -var="google_client_secret=$GOOGLE_SEC" \
             -var="google_redirect_uri=$GOOGLE_URI" \
             -var="github_client_id=$GITHUB_ID" \
-            -var="github_client_secret=$GOOGLE_SEC" \
-            -var="github_redirect_uri=$GITHUB_URI"
+            -var="github_client_secret=$GITHUB_SEC" \
+            -var="github_redirect_uri=$GITHUB_URI" \
+            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE"
