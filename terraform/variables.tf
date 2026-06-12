@@ -77,3 +77,9 @@ variable "cloud_sql_instance" {
   type        = string
   default     = ""
 }
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}

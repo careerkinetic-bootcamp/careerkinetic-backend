@@ -103,7 +103,8 @@ jobs:
             -var="github_client_id=$GITHUB_ID" \
             -var="github_client_secret=$GITHUB_SEC" \
             -var="github_redirect_uri=$GITHUB_URI" \
-            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE"
+            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE" \
+            -var="image_tag=sha-${{ github.sha }}"
 
       # Configure Docker Authentication for GCP Artifact Registry
       - name: Authenticate Docker to GCP
@@ -113,7 +114,7 @@ jobs:
       # Build and Push Docker image
       - name: Docker Build and Push
         run: |
-          IMAGE_TAG="asia-south2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/careerkinetic-$ENV-repo/careerkinetic:latest"
+          IMAGE_TAG="asia-south2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/careerkinetic-$ENV-repo/careerkinetic:sha-${{ github.sha }}"
           docker build -t $IMAGE_TAG .
           docker push $IMAGE_TAG
 
@@ -133,4 +134,5 @@ jobs:
             -var="github_client_id=$GITHUB_ID" \
             -var="github_client_secret=$GITHUB_SEC" \
             -var="github_redirect_uri=$GITHUB_URI" \
-            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE"
+            -var="cloud_sql_instance=$CLOUD_SQL_INSTANCE" \
+            -var="image_tag=sha-${{ github.sha }}"
