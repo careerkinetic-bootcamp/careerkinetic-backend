@@ -41,7 +41,7 @@ resource "google_cloud_run_v2_service" "api" {
 
   template {
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.app.repository_id}/${var.app_name}:latest"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.app.repository_id}/${var.app_name}:${var.image_tag}"
 
       ports {
         container_port = 8080
@@ -92,6 +92,24 @@ resource "google_cloud_run_v2_service" "api" {
         limits = {
           cpu    = "1"
           memory = "512Mi"
+        }
+      }
+
+      dynamic "volume_mounts" {
+        for_each = var.cloud_sql_instance != "" ? [1] : []
+        content {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+      }
+    }
+
+    dynamic "volumes" {
+      for_each = var.cloud_sql_instance != "" ? [1] : []
+      content {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [var.cloud_sql_instance]
         }
       }
     }

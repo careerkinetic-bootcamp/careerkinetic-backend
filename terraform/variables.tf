@@ -71,3 +71,15 @@ variable "github_redirect_uri" {
   description = "GitHub Redirect Callback URI"
   type        = string
 }
+
+variable "cloud_sql_instance" {
+  description = "Connection name of the Cloud SQL instance (e.g. project:region:instance)"
+  type        = string
+  default     = ""
+}
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
