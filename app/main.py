@@ -9,6 +9,16 @@ from app.routers import auth
 
 app = FastAPI(title="CareerKinetic Backend API")
 
+
+@app.on_event("startup")
+async def startup_event():
+    from app.core.database import Base, engine
+    from app.models.domain import User  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
