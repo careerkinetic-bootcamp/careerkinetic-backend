@@ -2,11 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import UUID, Boolean, DateTime, Integer, String
+from sqlalchemy import JSON, UUID, Boolean, DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+JSONB_TYPE = JSON().with_variant(JSONB, "postgresql")
 
 
 class User(Base):
@@ -32,5 +34,5 @@ class User(Base):
 
     # Store profiles, backgrounds, URLs in this JSONB column
     profile_data: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, default=dict
+        JSONB_TYPE, nullable=True, default=dict
     )
