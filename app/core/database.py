@@ -15,8 +15,14 @@ elif db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 
+connect_args = {}
+if "sqlite" in db_url:
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"statement_cache_size": 0}
+
 engine = create_async_engine(
-    db_url, echo=False, poolclass=NullPool, connect_args={"statement_cache_size": 0}
+    db_url, echo=False, poolclass=NullPool, connect_args=connect_args
 )
 
 AsyncSessionLocal = async_sessionmaker(

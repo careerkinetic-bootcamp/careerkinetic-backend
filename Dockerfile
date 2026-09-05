@@ -14,7 +14,8 @@ RUN uv sync --frozen --no-dev --no-editable
 # Copy application code
 COPY app/ ./app/
 
-# Cloud Run injects the PORT env var (default 8080)
-EXPOSE 8080
+# Default port exposure
+EXPOSE 8080 10000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run with Gunicorn + UvicornWorker for production-grade concurrency
+CMD ["sh", "-c", "uv run gunicorn app.main:app -w ${WEB_CONCURRENCY:-2} -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT:-8080}"]

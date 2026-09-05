@@ -359,6 +359,67 @@ async def update_profile(
     return current_user
 
 
+@router.post(
+    "/dev-login",
+    response_model=UserResponse,
+    summary="Local Development Mock Login",
+    description="Issues a valid JWT session cookie for a mock test user in development mode.",
+)
+async def dev_login(
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if settings.env != "dev":
+        raise HTTPException(
+            status_code=403,
+            detail="Dev login is only available in development environment.",
+        )
+
+    dev_email = "dev.user@careerkinetic.com"
+    stmt = select(User).where(User.email == dev_email)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not user:
+        user_id = uuid.uuid4()
+        profile_data = {
+            "fullName": "Alex Rivera (Demo Student)",
+            "profilePic": "https://api.dicebear.com/7.x/bottts/svg?seed=alex",
+            "provider": "dev",
+            "provider_id": "dev_test_user",
+            "isEmailVerified": True,
+            "headline": "Full-Stack AI Explorer",
+        }
+        user = User(
+            id=user_id,
+            email=dev_email,
+            role="user",
+            profile_data=profile_data,
+            auth_provider="dev",
+            failed_login_streak=0,
+            password_changes_today=0,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    jwt_token = create_access_token(
+        user_id=str(user.id), email=user.email, role=user.role
+    )
+
+    is_prod = settings.env == "prod"
+    response.set_cookie(
+        key="access_token",
+        value=jwt_token,
+        httponly=True,
+        max_age=settings.jwt_expire_minutes * 60,
+        expires=settings.jwt_expire_minutes * 60,
+        samesite="lax",
+        secure=is_prod,
+    )
+
+    return user
+
+
 # Deprecated Supabase Sync endpoint
 @router.post(
     "/sync",
@@ -374,3 +435,4 @@ async def sync_user(
         status_code=400,
         detail="This endpoint is deprecated. Use /api/auth/callback instead.",
     )
+
