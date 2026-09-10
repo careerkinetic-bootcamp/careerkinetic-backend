@@ -7,13 +7,14 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.domain import User
+from app.models.domain import PaymentOrder, User
 from app.schemas.user import UserResponse
 
 router = APIRouter(tags=["auth"])
@@ -419,6 +420,36 @@ async def dev_login(
     )
 
     return user
+
+
+@router.post(
+    "/reset-demo",
+    summary="Reset Demo Account Purchases",
+    description="Resets enrolled cohorts and payment history for the test demo user in dev mode.",
+)
+async def reset_demo(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if settings.env != "dev" or current_user.email != "dev.user@careerkinetic.com":
+        raise HTTPException(
+            status_code=403,
+            detail="Reset demo is only available for the demo user in development mode.",
+        )
+
+    if not current_user.profile_data:
+        current_user.profile_data = {}
+    current_user.profile_data["enrolled_cohorts"] = []
+    flag_modified(current_user, "profile_data")
+
+    await db.execute(
+        delete(PaymentOrder).where(PaymentOrder.user_id == current_user.id)
+    )
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return {"status": "success", "message": "Demo enrollments successfully reset!"}
 
 
 # Deprecated Supabase Sync endpoint
