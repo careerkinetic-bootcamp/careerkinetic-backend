@@ -310,16 +310,16 @@ async def oauth_callback(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    # Secure cookies on production, allow HTTP on localhost
-    is_prod = settings.env == "prod"
+    # Secure cookies on production and cross-site between Vercel and Render
+    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or settings.env == "prod"
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
-        samesite="lax",
-        secure=is_prod,
+        samesite="none" if is_cross_site else "lax",
+        secure=True if is_cross_site else (settings.env == "prod"),
     )
 
     return user
@@ -331,12 +331,12 @@ async def oauth_callback(
     description="Logs the user out by deleting the HttpOnly cookie.",
 )
 async def logout(response: Response):
-    is_prod = settings.env == "prod"
+    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or settings.env == "prod"
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        samesite="lax",
-        secure=is_prod,
+        samesite="none" if is_cross_site else "lax",
+        secure=True if is_cross_site else (settings.env == "prod"),
     )
     return {"status": "logged_out"}
 
@@ -406,15 +406,16 @@ async def dev_login(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    is_prod = settings.env == "prod"
+    # Cross-site cookie support between Vercel and Render
+    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or is_prod
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
-        samesite="lax",
-        secure=is_prod,
+        samesite="none" if is_cross_site else "lax",
+        secure=True if is_cross_site else is_prod,
     )
 
     return user
