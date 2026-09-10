@@ -4,6 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     env: str = "dev"
     database_url: str = "postgresql+asyncpg://appuser:testpass@localhost:5432/postgres"
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
 
     # Supabase (Deprecating)
     supabase_url: str = ""

@@ -1,3 +1,4 @@
+from app.routers import payments
 import traceback
 
 from fastapi import FastAPI, Request
@@ -13,7 +14,7 @@ app = FastAPI(title="CareerKinetic Backend API")
 @app.on_event("startup")
 async def startup_event():
     from app.core.database import Base, engine
-    from app.models.domain import User  # noqa: F401
+    from app.models.domain import PaymentOrder, User  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -47,6 +48,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(auth.router, prefix="/api/auth")
+app.include_router(payments.router)
 
 
 @app.get("/")

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import JSON, UUID, Boolean, DateTime, Integer, String
@@ -36,3 +36,37 @@ class User(Base):
     profile_data: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB_TYPE, nullable=True, default=dict
     )
+
+
+class PaymentOrder(Base):
+    __tablename__ = "payment_orders"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), index=True, nullable=False
+    )
+    user_email: Mapped[str] = mapped_column(String, nullable=False)
+    cohort_id: Mapped[str] = mapped_column(String, nullable=False)
+    cohort_title: Mapped[str] = mapped_column(String, nullable=False)
+    plan_type: Mapped[str] = mapped_column(String, nullable=False, default="full")
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)  # in Rupees
+    currency: Mapped[str] = mapped_column(String, nullable=False, default="INR")
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="PENDING"
+    )  # PENDING, PAID, FAILED
+    razorpay_order_id: Mapped[str] = mapped_column(
+        String, unique=True, index=True, nullable=False
+    )
+    razorpay_payment_id: Mapped[str | None] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
+    razorpay_signature: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
