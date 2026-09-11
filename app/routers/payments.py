@@ -163,7 +163,78 @@ async def create_order(
 
 
 # =============================================================================
-# 4. Verify Payment (Cryptographic Signature + DB Update + Course Enrollment)
+# 4. Atomic Order Fulfillment Engine (Enterprise ACID & Concurrency Safe)
+# =============================================================================
+async def fulfill_order_atomic(
+    db: AsyncSession,
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str | None = None,
+    payment_method: str | None = None,
+) -> tuple[bool, PaymentOrder | None, bool]:
+    """
+    Executes an atomic, concurrency-safe fulfillment of a payment order.
+
+    Guarantees:
+    1. Row-Level Locking (SELECT ... FOR UPDATE): Prevents concurrent race conditions
+       between the frontend callback and Razorpay webhook.
+    2. Idempotency: If the order was already fulfilled, safely exits without re-processing.
+    3. ACID Transaction: Updates both the payment_orders table and users table atomically.
+
+    Returns:
+        (success: bool, order_record: PaymentOrder | None, already_paid: bool)
+    """
+    # 1. Acquire exclusive row-level lock on the order row in PostgreSQL
+    stmt = (
+        select(PaymentOrder)
+        .where(PaymentOrder.razorpay_order_id == razorpay_order_id)
+        .with_for_update()
+    )
+    result = await db.execute(stmt)
+    order_record = result.scalar_one_or_none()
+
+    if not order_record:
+        return False, None, False
+
+    # 2. Idempotency Guard: if already PAID, exit early cleanly
+    if order_record.status == "PAID":
+        return True, order_record, True
+
+    # 3. Update Order state
+    order_record.status = "PAID"
+    order_record.razorpay_payment_id = razorpay_payment_id
+    if razorpay_signature:
+        order_record.razorpay_signature = razorpay_signature
+    if payment_method:
+        order_record.payment_method = payment_method
+    order_record.updated_at = datetime.now(timezone.utc)
+    db.add(order_record)
+
+    # 4. Acquire exclusive lock on the User record and activate enrollment
+    user_stmt = (
+        select(User)
+        .where(User.id == order_record.user_id)
+        .with_for_update()
+    )
+    user = (await db.execute(user_stmt)).scalar_one_or_none()
+    if user:
+        current_profile = dict(user.profile_data or {})
+        enrolled_cohorts = list(current_profile.get("enrolled_cohorts", []))
+        if order_record.cohort_id not in enrolled_cohorts:
+            enrolled_cohorts.append(order_record.cohort_id)
+            current_profile["enrolled_cohorts"] = enrolled_cohorts
+            user.profile_data = current_profile
+            flag_modified(user, "profile_data")
+            db.add(user)
+
+    # 5. Commit all changes atomically
+    await db.commit()
+    await db.refresh(order_record)
+    return True, order_record, False
+
+
+# =============================================================================
+# 5. Verify Payment (Cryptographic Signature + Atomic Fulfillment)
 # =============================================================================
 @router.post("/verify-payment")
 async def verify_payment(
@@ -171,29 +242,7 @@ async def verify_payment(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    # 1. Fetch order from local database
-    stmt = select(PaymentOrder).where(
-        PaymentOrder.razorpay_order_id == payment.razorpay_order_id
-    )
-    order_record = (await db.execute(stmt)).scalar_one_or_none()
-
-    if not order_record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found in database records.",
-        )
-
-    # 2. Idempotency check (if already marked paid, return success directly)
-    if order_record.status == "PAID":
-        return {
-            "success": True,
-            "message": "Payment was already verified successfully.",
-            "order_id": order_record.razorpay_order_id,
-            "payment_id": order_record.razorpay_payment_id,
-            "cohort_id": order_record.cohort_id,
-        }
-
-    # 3. Cryptographically verify signature using HMAC
+    # 1. Cryptographically verify signature using HMAC-SHA256
     client = get_razorpay_client()
     try:
         client.utility.verify_payment_signature(
@@ -204,45 +253,63 @@ async def verify_payment(
             }
         )
     except razorpay.errors.SignatureVerificationError:
-        order_record.status = "FAILED"
-        order_record.updated_at = datetime.now(timezone.utc)
-        db.add(order_record)
-        await db.commit()
+        # Mark order as FAILED in database under row lock
+        stmt = (
+            select(PaymentOrder)
+            .where(PaymentOrder.razorpay_order_id == payment.razorpay_order_id)
+            .with_for_update()
+        )
+        res = await db.execute(stmt)
+        order_rec = res.scalar_one_or_none()
+        if order_rec and order_rec.status != "PAID":
+            order_rec.status = "FAILED"
+            order_rec.updated_at = datetime.now(timezone.utc)
+            db.add(order_rec)
+            await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payment verification failed: Invalid Razorpay signature.",
         )
 
-    # 4. Update order status in DB to PAID
-    order_record.status = "PAID"
-    order_record.razorpay_payment_id = payment.razorpay_payment_id
-    order_record.razorpay_signature = payment.razorpay_signature
-    order_record.updated_at = datetime.now(timezone.utc)
-    db.add(order_record)
+    # 2. Detect payment method from Razorpay API (upi, card, emi, netbanking)
+    payment_method = None
+    try:
+        payment_details = client.payment.fetch(payment.razorpay_payment_id)
+        payment_method = payment_details.get("method")
+    except Exception:
+        pass  # Graceful fallback if Razorpay API lookup encounters transient error
 
-    # 5. Automatically activate enrollment in the student's profile!
-    current_profile = dict(current_user.profile_data or {})
-    enrolled_cohorts = list(current_profile.get("enrolled_cohorts", []))
-    if order_record.cohort_id not in enrolled_cohorts:
-        enrolled_cohorts.append(order_record.cohort_id)
-        current_profile["enrolled_cohorts"] = enrolled_cohorts
-        current_user.profile_data = current_profile
-        flag_modified(current_user, "profile_data")
-        db.add(current_user)
+    # 3. Atomically fulfill the order and grant access
+    success, order_record, already_paid = await fulfill_order_atomic(
+        db=db,
+        razorpay_order_id=payment.razorpay_order_id,
+        razorpay_payment_id=payment.razorpay_payment_id,
+        razorpay_signature=payment.razorpay_signature,
+        payment_method=payment_method,
+    )
 
-    await db.commit()
+    if not success or not order_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found in database records.",
+        )
 
     return {
         "success": True,
-        "message": "Payment verified and enrollment activated!",
+        "message": (
+            "Payment was already verified successfully."
+            if already_paid
+            else "Payment verified and enrollment activated!"
+        ),
         "order_id": order_record.razorpay_order_id,
         "payment_id": order_record.razorpay_payment_id,
         "cohort_id": order_record.cohort_id,
+        "payment_method": order_record.payment_method,
     }
 
 
 # =============================================================================
-# 5. Webhook Listener (Safety Net for Network Drops or Closed Tabs)
+# 6. Webhook Listener (Safety Net for Network Drops or Closed Tabs)
 # =============================================================================
 @router.post("/webhook")
 async def razorpay_webhook(
@@ -252,7 +319,7 @@ async def razorpay_webhook(
     body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature")
 
-    # Verify webhook signature if secret configured
+    # 1. Verify webhook signature if secret configured
     if settings.razorpay_webhook_secret and signature:
         try:
             client = get_razorpay_client()
@@ -274,38 +341,20 @@ async def razorpay_webhook(
 
     event_type = event_data.get("event")
 
-    # Handle payment capture event
+    # 2. Handle payment capture event asynchronously
     if event_type in ["payment.captured", "order.paid"]:
         payload_data = event_data.get("payload", {})
         payment_entity = payload_data.get("payment", {}).get("entity", {})
         order_id = payment_entity.get("order_id")
         payment_id = payment_entity.get("id")
+        method = payment_entity.get("method")
 
-        if order_id:
-            stmt = select(PaymentOrder).where(
-                PaymentOrder.razorpay_order_id == order_id
+        if order_id and payment_id:
+            await fulfill_order_atomic(
+                db=db,
+                razorpay_order_id=order_id,
+                razorpay_payment_id=payment_id,
+                payment_method=method,
             )
-            order_record = (await db.execute(stmt)).scalar_one_or_none()
-
-            if order_record and order_record.status != "PAID":
-                order_record.status = "PAID"
-                order_record.razorpay_payment_id = payment_id
-                order_record.updated_at = datetime.now(timezone.utc)
-                db.add(order_record)
-
-                # Grant course access to student
-                user_stmt = select(User).where(User.id == order_record.user_id)
-                user = (await db.execute(user_stmt)).scalar_one_or_none()
-                if user:
-                    user_profile = dict(user.profile_data or {})
-                    enrolled = list(user_profile.get("enrolled_cohorts", []))
-                    if order_record.cohort_id not in enrolled:
-                        enrolled.append(order_record.cohort_id)
-                        user_profile["enrolled_cohorts"] = enrolled
-                        user.profile_data = user_profile
-                        flag_modified(user, "profile_data")
-                        db.add(user)
-
-                await db.commit()
 
     return {"status": "ok"}

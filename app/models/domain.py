@@ -63,6 +63,9 @@ class PaymentOrder(Base):
         String, unique=True, index=True, nullable=True
     )
     razorpay_signature: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # e.g., 'upi', 'card', 'emi', 'netbanking'
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
