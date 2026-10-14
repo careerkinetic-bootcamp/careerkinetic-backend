@@ -14,8 +14,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.domain import PaymentOrder, User
-from app.schemas.user import UserResponse
+from app.schemas.user import AuthCallbackResponse, UserResponse
 
 router = APIRouter(tags=["auth"])
 
@@ -111,7 +110,7 @@ async def get_github_url():
 
 @router.post(
     "/callback",
-    response_model=UserResponse,
+    response_model=AuthCallbackResponse,
     summary="OAuth Code Exchange Callback",
     description=(
         "Exchanges a temporary authorization code from Google or GitHub "
@@ -311,19 +310,36 @@ async def oauth_callback(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    # Secure cookies on production and cross-site between Vercel and Render
-    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or settings.env == "prod"
+    # Determine production mode
+    is_prod = settings.env.lower() in ("prod", "production")
+
+    # Set cookie on root domain .careerkinetic.com if hosted on custom domain
+    # This ensures cross-subdomain availability (careerkinetic.com <-> api-prod.careerkinetic.com)
+    # without being blocked as a third-party cookie.
+    cookie_domain = None
+    if "careerkinetic.com" in settings.google_redirect_uri or "careerkinetic.com" in settings.github_redirect_uri or is_prod:
+        cookie_domain = ".careerkinetic.com"
+
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
+        domain=cookie_domain,
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
-        samesite="none" if is_cross_site else "lax",
-        secure=True if is_cross_site else (settings.env == "prod"),
+        samesite="none" if is_prod else "lax",
+        secure=True if is_prod else False,
     )
 
-    return user
+    return AuthCallbackResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        auth_provider=user.auth_provider,
+        profile_data=user.profile_data,
+        access_token=jwt_token,
+        token_type="bearer",
+    )
 
 
 @router.post(
@@ -332,13 +348,25 @@ async def oauth_callback(
     description="Logs the user out by deleting the HttpOnly cookie.",
 )
 async def logout(response: Response):
-    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or settings.env == "prod"
+    is_prod = settings.env.lower() in ("prod", "production")
+    cookie_domain = None
+    if "careerkinetic.com" in settings.google_redirect_uri or "careerkinetic.com" in settings.github_redirect_uri or is_prod:
+        cookie_domain = ".careerkinetic.com"
+
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        samesite="none" if is_cross_site else "lax",
-        secure=True if is_cross_site else (settings.env == "prod"),
+        domain=cookie_domain,
+        samesite="none" if is_prod else "lax",
+        secure=True if is_prod else False,
     )
+    if cookie_domain:
+        response.delete_cookie(
+            key="access_token",
+            httponly=True,
+            samesite="none" if is_prod else "lax",
+            secure=True if is_prod else False,
+        )
     return {"status": "logged_out"}
 
 
@@ -362,7 +390,7 @@ async def update_profile(
 
 @router.post(
     "/dev-login",
-    response_model=UserResponse,
+    response_model=AuthCallbackResponse,
     summary="Local Development Mock Login",
     description="Issues a valid JWT session cookie for a mock test user in development mode.",
 )
@@ -407,8 +435,7 @@ async def dev_login(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    # Cross-site cookie support between Vercel and Render
-    is_cross_site = "vercel.app" in "".join(settings.cors_origins) or is_prod
+    is_cross_site = "vercel.app" in "".join(settings.cors_origins)
     response.set_cookie(
         key="access_token",
         value=jwt_token,
@@ -416,10 +443,18 @@ async def dev_login(
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
         samesite="none" if is_cross_site else "lax",
-        secure=True if is_cross_site else is_prod,
+        secure=True if is_cross_site else False,
     )
 
-    return user
+    return AuthCallbackResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        auth_provider=user.auth_provider,
+        profile_data=user.profile_data,
+        access_token=jwt_token,
+        token_type="bearer",
+    )
 
 
 @router.post(
