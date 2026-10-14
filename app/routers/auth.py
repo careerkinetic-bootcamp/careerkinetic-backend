@@ -14,6 +14,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.domain import PaymentOrder, User
 from app.schemas.user import AuthCallbackResponse, UserResponse
 
 router = APIRouter(tags=["auth"])
