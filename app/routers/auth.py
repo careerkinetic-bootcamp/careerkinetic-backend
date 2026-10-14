@@ -7,14 +7,15 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.domain import User
-from app.schemas.user import UserResponse
+from app.models.domain import PaymentOrder, User
+from app.schemas.user import AuthCallbackResponse, UserResponse
 
 router = APIRouter(tags=["auth"])
 
@@ -110,7 +111,7 @@ async def get_github_url():
 
 @router.post(
     "/callback",
-    response_model=UserResponse,
+    response_model=AuthCallbackResponse,
     summary="OAuth Code Exchange Callback",
     description=(
         "Exchanges a temporary authorization code from Google or GitHub "
@@ -310,19 +311,36 @@ async def oauth_callback(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    # Secure cookies on production, allow HTTP on localhost
-    is_prod = settings.env == "prod"
+    # Determine production mode
+    is_prod = settings.env.lower() in ("prod", "production")
+
+    # Set cookie on root domain .careerkinetic.com if hosted on custom domain
+    # This ensures cross-subdomain availability (careerkinetic.com <-> api-prod.careerkinetic.com)
+    # without being blocked as a third-party cookie.
+    cookie_domain = None
+    if "careerkinetic.com" in settings.google_redirect_uri or "careerkinetic.com" in settings.github_redirect_uri or is_prod:
+        cookie_domain = ".careerkinetic.com"
+
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
+        domain=cookie_domain,
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
-        samesite="lax",
-        secure=is_prod,
+        samesite="none" if is_prod else "lax",
+        secure=True if is_prod else False,
     )
 
-    return user
+    return AuthCallbackResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        auth_provider=user.auth_provider,
+        profile_data=user.profile_data,
+        access_token=jwt_token,
+        token_type="bearer",
+    )
 
 
 @router.post(
@@ -331,13 +349,25 @@ async def oauth_callback(
     description="Logs the user out by deleting the HttpOnly cookie.",
 )
 async def logout(response: Response):
-    is_prod = settings.env == "prod"
+    is_prod = settings.env.lower() in ("prod", "production")
+    cookie_domain = None
+    if "careerkinetic.com" in settings.google_redirect_uri or "careerkinetic.com" in settings.github_redirect_uri or is_prod:
+        cookie_domain = ".careerkinetic.com"
+
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        samesite="lax",
-        secure=is_prod,
+        domain=cookie_domain,
+        samesite="none" if is_prod else "lax",
+        secure=True if is_prod else False,
     )
+    if cookie_domain:
+        response.delete_cookie(
+            key="access_token",
+            httponly=True,
+            samesite="none" if is_prod else "lax",
+            secure=True if is_prod else False,
+        )
     return {"status": "logged_out"}
 
 
@@ -361,7 +391,7 @@ async def update_profile(
 
 @router.post(
     "/dev-login",
-    response_model=UserResponse,
+    response_model=AuthCallbackResponse,
     summary="Local Development Mock Login",
     description="Issues a valid JWT session cookie for a mock test user in development mode.",
 )
@@ -406,18 +436,56 @@ async def dev_login(
         user_id=str(user.id), email=user.email, role=user.role
     )
 
-    is_prod = settings.env == "prod"
+    is_cross_site = "vercel.app" in "".join(settings.cors_origins)
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
         max_age=settings.jwt_expire_minutes * 60,
         expires=settings.jwt_expire_minutes * 60,
-        samesite="lax",
-        secure=is_prod,
+        samesite="none" if is_cross_site else "lax",
+        secure=True if is_cross_site else False,
     )
 
-    return user
+    return AuthCallbackResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        auth_provider=user.auth_provider,
+        profile_data=user.profile_data,
+        access_token=jwt_token,
+        token_type="bearer",
+    )
+
+
+@router.post(
+    "/reset-demo",
+    summary="Reset Demo Account Purchases",
+    description="Resets enrolled cohorts and payment history for the test demo user in dev mode.",
+)
+async def reset_demo(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if settings.env != "dev" or current_user.email != "dev.user@careerkinetic.com":
+        raise HTTPException(
+            status_code=403,
+            detail="Reset demo is only available for the demo user in development mode.",
+        )
+
+    if not current_user.profile_data:
+        current_user.profile_data = {}
+    current_user.profile_data["enrolled_cohorts"] = []
+    flag_modified(current_user, "profile_data")
+
+    await db.execute(
+        delete(PaymentOrder).where(PaymentOrder.user_id == current_user.id)
+    )
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return {"status": "success", "message": "Demo enrollments successfully reset!"}
 
 
 # Deprecated Supabase Sync endpoint
