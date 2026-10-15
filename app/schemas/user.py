@@ -13,3 +13,9 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuthCallbackResponse(UserResponse):
+    access_token: str
+    token_type: str = "bearer"
+
